@@ -93,7 +93,7 @@ def update_latest_timestamp(timestamp, vs_cur, conn):
 
 def add_market_data_to_db(data, vs_cur, conn, request_time=None):
     if request_time is None:
-        request_time = int(time() * 1000)
+        request_time = int(time())
 
     market_data_df = pd.DataFrame(data)
     market_data_df = market_data_df[['id', 'current_price', 'price_change_percentage_24h_in_currency']]
@@ -102,6 +102,7 @@ def add_market_data_to_db(data, vs_cur, conn, request_time=None):
     market_data_df['added_at'] = request_time
     market_data_df.to_sql(name='market_price', con=conn, if_exists='replace', 
                           chunksize=DB_INSERT_CHUNKS, method='multi')
+
     update_latest_timestamp(request_time, vs_cur, conn)
 
 
@@ -149,6 +150,31 @@ def _get_report_path(report_dir, report_name, timestamp):
     return report_dir / f'{report_name}.csv'
 
 
+def _get_no_trade_in_cur_query(vs_cur, timestamp):
+    sql_query = '''
+        SELECT cc.id, cc.symbol, cc.name 
+        FROM crypto_cur cc 
+        LEFT JOIN market_price mp ON cc.id = mp.crypto_cur_id
+        WHERE added_at = ? AND vs_cur = ? AND current_price is NULL
+    '''
+    params = (timestamp, vs_cur)
+
+    return sql_query, params
+
+
+def _get_24h_perc_change_report_query(vs_cur, perc, timestamp):
+    sql_query = '''
+        SELECT cc.id, cc.symbol, cc.name, price_change_percentage_24h_in_currency
+        FROM crypto_cur cc 
+        LEFT JOIN market_price mp ON cc.id = mp.crypto_cur_id
+        WHERE added_at = ? AND vs_cur = ? AND 
+            ABS(price_change_percentage_24h_in_currency) > ?
+    '''
+    params=(timestamp, vs_cur, perc)
+
+    return sql_query, params
+
+
 def generate_report(conn, report_type, **kwargs):
     vs_cur = kwargs.get('vs_cur', VS_CUR)
     timestamp = kwargs.get('timestamp', _get_last_price_timestamp(conn, vs_cur))
@@ -156,14 +182,20 @@ def generate_report(conn, report_type, **kwargs):
     match report_type:
         case 'no_trade_in_cur':
             report_name = f'crypto_cur_not_traded_vs_{vs_cur}'
+            sql_query, query_params = _get_no_trade_in_cur_query(vs_cur, timestamp)
         case 'more_than_x_per_change_in_24h':
             perc = kwargs.get('perc', 0)
             report_name = f'crypto_cur_price_change_more_than_{perc}%_in_24h_vs_{vs_cur}'
+            sql_query, query_params = _get_24h_perc_change_report_query(vs_cur, perc, timestamp)
         case _:
             raise NotImplementedError(f'Unknown Report type has been requested: {report_type}')
 
     report_base_dir = kwargs.get('report_dir', REPORTS_DIR)
     report_path =_get_report_path(report_base_dir, report_name, timestamp)
+
+    report_data_df = pd.read_sql_query(sql_query, con=conn, params=query_params)
+    report_data_df.to_csv(report_path, index=False)
+    print(f'Report {report_name} has been generated.\nReport path: {report_path}\n')
 
 
 if __name__ == '__main__':
