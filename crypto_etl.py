@@ -12,6 +12,7 @@ MAX_PER_PAGE = 250
 RETRY_TIMEOUT = 125
 API_LIMIT_ERROR_CODES = [429, 502, 503, 504]
 VS_CUR = 'gbp'
+DB_INSERT_CHUNKS = 100
 
 
 class ApiLimitError(Exception):
@@ -50,7 +51,7 @@ def get_market_data_page(currency, price_change_period, page):
                 'page': page, 'per_page': MAX_PER_PAGE, 'order': 'id_asc'}
     response = requests.get(f'{API_URL_BASE}coins/markets', params=payload)
     
-    if response.status_code  in API_LIMIT_ERROR_CODES:
+    if response.status_code in API_LIMIT_ERROR_CODES:
         raise ApiLimitError
     elif response.status_code != SUCCESS_CODE:
         raise ConnectionError(f'Code {response.status_code} received. Reason: {response.reason}\n URL: {response.url}')
@@ -77,7 +78,7 @@ def get_market_data_all(currency, price_change_period='24h'):
 def add_coins_to_db(crypto_currencies, conn):
     coins_df = pd.DataFrame(crypto_currencies)
     coins_df = coins_df.set_index('id')
-    coins_df.to_sql(name='crypto_cur', con=conn, if_exists='replace', method='multi')
+    coins_df.to_sql(name='crypto_cur', con=conn, if_exists='replace', chunksize=DB_INSERT_CHUNKS, method='multi')
 
 
 def prepare_db(conn):
