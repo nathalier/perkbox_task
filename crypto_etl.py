@@ -1,5 +1,7 @@
+from datetime import datetime
 import json
 import pandas as pd
+from pathlib import Path
 import requests
 import sqlite3
 from time import time, sleep
@@ -13,6 +15,7 @@ RETRY_TIMEOUT = 125
 API_LIMIT_ERROR_CODES = [429, 502, 503, 504]
 VS_CUR = 'gbp'
 DB_INSERT_CHUNKS = 100
+REPORTS_DIR = "reports"
 
 
 class ApiLimitError(Exception):
@@ -129,6 +132,40 @@ def connect_to_db(db_name='crypto_market.sqlite'):
     return conn
 
 
+def _get_last_price_timestamp(conn, vs_cur):
+    last_price_timestamp = next(conn.execute('''
+                SELECT last_request_at FROM latest_timestamp WHERE for_cur = ?
+                ''', (vs_cur, )))[0]
+    return last_price_timestamp
+
+
+def _get_report_path(report_dir, report_name, timestamp):
+    data_dt = datetime.fromtimestamp(timestamp)
+    report_time = data_dt.strftime("%Y_%m_%d__%H_%M_%S")
+
+    report_dir = Path(report_dir) / report_time
+    report_dir.mkdir(parents=True, exist_ok=True)
+
+    return report_dir / f'{report_name}.csv'
+
+
+def generate_report(conn, report_type, **kwargs):
+    vs_cur = kwargs.get('vs_cur', VS_CUR)
+    timestamp = kwargs.get('timestamp', _get_last_price_timestamp(conn, vs_cur))
+
+    match report_type:
+        case 'no_trade_in_cur':
+            report_name = f'crypto_cur_not_traded_vs_{vs_cur}'
+        case 'more_than_x_per_change_in_24h':
+            perc = kwargs.get('perc', 0)
+            report_name = f'crypto_cur_price_change_more_than_{perc}%_in_24h_vs_{vs_cur}'
+        case _:
+            raise NotImplementedError(f'Unknown Report type has been requested: {report_type}')
+
+    report_base_dir = kwargs.get('report_dir', REPORTS_DIR)
+    report_path =_get_report_path(report_base_dir, report_name, timestamp)
+
+
 if __name__ == '__main__':
     conn = connect_to_db()
 
@@ -138,5 +175,5 @@ if __name__ == '__main__':
     market_data_gbp = get_market_data_all(VS_CUR)
     add_market_data_to_db(market_data_gbp, VS_CUR, conn)
 
-    print(len(coins_list))
-    print(len(market_data_gbp))
+    generate_report(conn, report_type='no_trade_in_cur', vs_cur=VS_CUR)
+    generate_report(conn, report_type='more_than_x_per_change_in_24h', vs_cur=VS_CUR, perc=5.)
