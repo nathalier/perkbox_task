@@ -12,11 +12,11 @@ The repository contains simple script which implements the following scenario:
 ### To run the script:
 
 1. Create virtual environment:  
-    windows: `python -m venv venv`
+    windows: `python -m venv venv`  
     *nix: `python3 -m venv venv`
-2. Activate it:
-   windows: `venv\Scripts\activate`
-   *nix: source `source venv/bin/activate`
+2. Activate it:  
+   windows: `venv\Scripts\activate`  
+   *nix:  `source venv/bin/activate`
 3. Install requirements:
     `pip install -r requirements.txt`
 4. Run script:
@@ -24,6 +24,7 @@ The repository contains simple script which implements the following scenario:
 
 
 ### Notes:
+Please use `3.9` or higher version of python
 
 
 
