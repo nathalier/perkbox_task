@@ -2,7 +2,7 @@ import json
 import pandas as pd
 import requests
 import sqlite3
-from time import sleep
+from time import time, sleep
 
 
 API_URL_BASE = 'https://api.coingecko.com/api/v3/'
@@ -78,7 +78,28 @@ def get_market_data_all(currency, price_change_period='24h'):
 def add_coins_to_db(crypto_currencies, conn):
     coins_df = pd.DataFrame(crypto_currencies)
     coins_df = coins_df.set_index('id')
-    coins_df.to_sql(name='crypto_cur', con=conn, if_exists='replace', chunksize=DB_INSERT_CHUNKS, method='multi')
+    coins_df.to_sql(name='crypto_cur', con=conn, if_exists='replace', 
+                    chunksize=DB_INSERT_CHUNKS, method='multi')
+
+
+def update_latest_timestamp(timestamp, vs_cur, conn):
+    conn.execute('''INSERT OR REPLACE INTO latest_timestamp (for_cur, last_request_at) VALUES (?, ?)''', 
+        (vs_cur, timestamp))
+    conn.commit()
+
+
+def add_market_data_to_db(data, vs_cur, conn, request_time=None):
+    if request_time is None:
+        request_time = int(time() * 1000)
+
+    market_data_df = pd.DataFrame(data)
+    market_data_df = market_data_df[['id', 'current_price', 'price_change_percentage_24h_in_currency']]
+    market_data_df = market_data_df.rename(columns={'id': 'crypto_cur_id'})
+    market_data_df['vs_cur'] = vs_cur
+    market_data_df['added_at'] = request_time
+    market_data_df.to_sql(name='market_price', con=conn, if_exists='replace', 
+                          chunksize=DB_INSERT_CHUNKS, method='multi')
+    update_latest_timestamp(request_time, vs_cur, conn)
 
 
 def prepare_db(conn):
@@ -87,6 +108,17 @@ def prepare_db(conn):
                 id	TEXT NOT NULL PRIMARY KEY UNIQUE,
                 symbol TEXT NOT NULL,
                 name TEXT NOT NULL );
+            CREATE TABLE IF NOT EXISTS market_price (
+                crypto_cur_id	TEXT NOT NULL,
+                vs_cur  TEXT NOT NULL,
+                added_at  INTEGER,
+                current_price  REAL,
+                price_change_percentage_24h_in_currency  REAL
+                );
+            CREATE TABLE IF NOT EXISTS latest_timestamp (
+                for_cur  TEXT NOT NULL PRIMARY KEY UNIQUE,
+                last_request_at  INTEGER NOT NUll
+            );
             ''')
     conn.commit()
 
@@ -104,6 +136,7 @@ if __name__ == '__main__':
     add_coins_to_db(coins_list, conn)
 
     market_data_gbp = get_market_data_all(VS_CUR)
+    add_market_data_to_db(market_data_gbp, VS_CUR, conn)
 
     print(len(coins_list))
     print(len(market_data_gbp))
